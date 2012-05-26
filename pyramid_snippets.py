@@ -6,7 +6,7 @@ from pyramid.view import render_view
 from zope.interface import Interface, implementedBy, providedBy
 import re
 import urllib
-
+from types import FunctionType
 
 _ = TranslationStringFactory('pyramid_snippets')
 
@@ -105,13 +105,30 @@ def get_snippets(context, request):
         ISnippet))
 
 
-def add_snippet(self, snippet=None, **kwargs):
+def get_snippet(context, request, name=None):
+    return request.registry.adapters.lookup(
+        (providedBy(request), providedBy(context)),
+        ISnippet, name=name)
+
+def snippet_factory(func, title, schema=None):
+    class SnippetComingOutOfTheFactory(object):
+        pass
+        
+    
+    SnippetComingOutOfTheFactory.__call__ = func
+    SnippetComingOutOfTheFactory.title = title
+    SnippetComingOutOfTheFactory.schema = schema
+    
+    return SnippetComingOutOfTheFactory
+
+def add_snippet(config, snippet=None, title=None, schema=None,
+                **kwargs):
     name = kwargs['name']
     del kwargs['name']
     route_name = kwargs.get('route_name')
     request_iface = IRequest
     if route_name is not None:
-        request_iface = self.registry.queryUtility(IRouteRequest,
+        request_iface = config.registry.queryUtility(IRouteRequest,
                                                    name=route_name)
         if request_iface is None:
             # route configuration should have already happened in
@@ -119,10 +136,18 @@ def add_snippet(self, snippet=None, **kwargs):
             raise ConfigurationError(
                 'No route named %s found for view registration' %
                 route_name)
-    self.registry.registerAdapter(
+
+    # If snippet is a function, wrap it
+    if isinstance(snippet, FunctionType):
+        snippet = snippet_factory(snippet, title, schema)
+
+    context = kwargs.get('context')
+    context_iface = (implementedBy(context) if context is not None
+                      else Interface)
+    config.registry.registerAdapter(
         snippet,
-        (request_iface, implementedBy(kwargs.get('context'))), ISnippet, name)
-    self.add_view(view=snippet, name='snippet-%s' % name, **kwargs)
+        (request_iface, context_iface), ISnippet, name)
+    config.add_view(view=snippet, name='snippet-%s' % name, **kwargs)
 
 
 def includeme(config):
