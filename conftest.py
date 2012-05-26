@@ -1,13 +1,10 @@
-from pyramid.testing import setUp, tearDown, DummyRequest
+from pyramid.testing import setUp, DummyRequest
 
 
 def pytest_funcarg__config(request):
-    def setup():
-        config = setUp(settings={})
-        config.include('pyramid_snippets')
-        return config
-    return request.cached_setup(
-        setup=setup, teardown=tearDown, scope='session')
+    config = setUp(settings={})
+    config.include('pyramid_snippets')
+    return config
 
 
 def pytest_funcarg__request(request):
