@@ -1,4 +1,3 @@
-from pyramid import testing
 from pyramid.response import Response
 from pyramid_snippets import render_snippets
 from unittest import TestCase
@@ -25,7 +24,9 @@ def test_non_existing(request):
 def test_rendering(config, request):
     def foo(context, request):
         return Response(u"Foo")
-    config.add_snippet(name='foo', snippet=foo)
+
+    config.add_view(dummy_snippet, name='foo-view')
+    config.register_snippet(name='foo', title='Foo snippet', view='foo-view')
     out = render_snippets(None, request, '[foo /]')
     assert out == u'Foo'
 
@@ -35,8 +36,10 @@ def test_arguments(config, request):
         return Response("{0} - {1}".format(
             request.POST.get('body'),
             request.POST.get('ham')))
-    config.add_snippet(name='foo', snippet=foo, title="Magick Garrery")
-    config.add_snippet(name='foo', snippet=DummySnippet)
+
+    config.add_view(foo, name='foo-view')
+    config.register_snippet(name='foo', title="Magick Garrery",
+                            view='foo-view')
 
     out = render_snippets(None, request, '[foo ham=egg]Blubber[/foo]')
     assert out == u'Blubber - egg'
@@ -45,7 +48,9 @@ def test_arguments(config, request):
 def test_baseurl(config, request):
     def foo(context, request):
         return Response(request.application_url)
-    config.add_snippet(name='foo', snippet=foo)
+
+    config.add_view(foo, name='foo-view')
+    config.register_snippet(name='foo', title='Foo', view='foo-view')
     out = render_snippets(None, request, '[foo/]')
     assert out == u'http://example.com'
 
@@ -54,24 +59,22 @@ class TestSnippetsRegistration(object):
     def test_get_snippets_class(self, config, request):
         from pyramid_snippets import get_snippets
 
-        context = testing.DummyResource()
-        assert get_snippets(context, request) == {}
-        config.add_snippet(DummySnippet, name='foo')
-        assert get_snippets(context, request) == {
-            'foo': DummySnippet
+        assert get_snippets() == {}
+        config.add_view(DummySnippet, name='foo-view')
+        config.register_snippet(name='foo', title='Foo', view='foo-view')
+        assert get_snippets() == {
+            'foo': {'title': 'Foo', 'view': 'foo-view', 'schema': None}
         }
 
     def test_get_snippets_func(self, config, request):
         from pyramid_snippets import get_snippets
 
-        context = testing.DummyResource()
-        assert get_snippets(context, request) == {}
-        config.add_snippet(dummy_snippet, name='foo', title=u'Face')
-        value = get_snippets(context, request)
-        assert value.keys() == ['foo']
-        snippet = value['foo']
-        assert snippet.title == u'Face'
-        assert snippet.__call__.im_func == dummy_snippet
+        assert get_snippets() == {}
+        config.add_view(dummy_snippet, name='foo-view')
+        config.register_snippet(name='foo', title=u'Face', view='foo-view')
+        assert get_snippets() == {
+            'foo': {'title': 'Face', 'view': 'foo-view', 'schema': None}
+        }
 
 
 class TestSnippetsRegexp(TestCase):
@@ -150,7 +153,8 @@ class TestSnippetsRegexp(TestCase):
 
     def test_snippet_name_chars(self):
         out = self.regexp.sub(
-            self._sub, "slkdfj [Moo_foo-2000 egg=ham]Blubber[/Moo_foo-2000] slkdfj")
+            self._sub,
+            "slkdfj [Moo_foo-2000 egg=ham]Blubber[/Moo_foo-2000] slkdfj")
         assert out == "slkdfj matched1 slkdfj"
         assert len(self.results) == 1
         assert self.results[0].groupdict()['name'] == 'Moo_foo-2000'

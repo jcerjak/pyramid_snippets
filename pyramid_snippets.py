@@ -1,12 +1,10 @@
 from pyramid.exceptions import ConfigurationError
 from pyramid.i18n import TranslationStringFactory, get_localizer
-from pyramid.interfaces import IRequest, IRouteRequest
 from pyramid.request import Request
+from pyramid.threadlocal import get_current_registry
 from pyramid.view import render_view
-from zope.interface import Interface, implementedBy, providedBy
 import re
 import urllib
-from types import FunctionType
 
 _ = TranslationStringFactory('pyramid_snippets')
 
@@ -43,20 +41,36 @@ snippet_regexp = re.compile(
     r'(?P<escapeclose>\]?)')                        # 6: Optional second closing bracket for escaping snippets: [[tag]]
 
 
-class ISnippet(Interface):
-    pass
+def register_snippet(self, name=None, title=None, view=None, schema=None):
+    """Register view as a snippet.
+
+    :param name: snippet name
+    :param title: snippet title
+    :param view: name of the view to register as a snippet.
+    :param schema: snippet schema (optional)
+    """
+    if name is None or title is None or view is None:
+        raise ConfigurationError(
+            'You have to provide the name, title and view.')
+
+    snippets = self.registry['pyramid.snippets']
+    snippets[name] = {'title': title, 'view': view, 'schema': schema}
+
+
+def get_snippets():
+    return get_current_registry()['pyramid.snippets']
 
 
 def render_snippet(context, request, name, arguments):
     snippet_request = Request.blank(
-        request.path + '/snippet-%s' % name,
+        request.path + name,
         base_url=request.application_url,
         POST=urllib.urlencode(arguments))
     snippet_request.registry = request.registry
-    return render_view(
-        context,
-        snippet_request,
-        'snippet-%s' % name)
+    snippet = get_snippets().get(name)
+    if not snippet:
+        return None
+    return render_view(context, snippet_request, snippet['view'])
 
 
 def render_snippets(context, request, body):
@@ -99,56 +113,6 @@ def render_snippets(context, request, body):
     return snippet_regexp.sub(sub, body)
 
 
-def get_snippets(context, request):
-    return dict(request.registry.adapters.lookupAll(
-        (providedBy(request), providedBy(context)),
-        ISnippet))
-
-
-def get_snippet(context, request, name=None):
-    return request.registry.adapters.lookup(
-        (providedBy(request), providedBy(context)),
-        ISnippet, name=name)
-
-def snippet_factory(func, title, schema=None):
-    class SnippetComingOutOfTheFactory(object):
-        pass
-        
-    
-    SnippetComingOutOfTheFactory.__call__ = func
-    SnippetComingOutOfTheFactory.title = title
-    SnippetComingOutOfTheFactory.schema = schema
-    
-    return SnippetComingOutOfTheFactory
-
-def add_snippet(config, snippet=None, title=None, schema=None,
-                **kwargs):
-    name = kwargs['name']
-    del kwargs['name']
-    route_name = kwargs.get('route_name')
-    request_iface = IRequest
-    if route_name is not None:
-        request_iface = config.registry.queryUtility(IRouteRequest,
-                                                   name=route_name)
-        if request_iface is None:
-            # route configuration should have already happened in
-            # phase 2
-            raise ConfigurationError(
-                'No route named %s found for view registration' %
-                route_name)
-
-    # If snippet is a function, wrap it
-    if isinstance(snippet, FunctionType):
-        snippet = snippet_factory(snippet, title, schema)
-
-    context = kwargs.get('context')
-    context_iface = (implementedBy(context) if context is not None
-                      else Interface)
-    config.registry.registerAdapter(
-        snippet,
-        (request_iface, context_iface), ISnippet, name)
-    config.add_view(view=snippet, name='snippet-%s' % name, **kwargs)
-
-
 def includeme(config):
-    config.add_directive('add_snippet', add_snippet)
+    config.registry['pyramid.snippets'] = {}
+    config.add_directive('register_snippet', register_snippet)
