@@ -1,4 +1,5 @@
 from pyramid.exceptions import ConfigurationError
+from pyramid.exceptions import PredicateMismatch
 from pyramid.i18n import TranslationStringFactory, get_localizer
 from pyramid.request import Request
 from pyramid.threadlocal import get_current_registry
@@ -61,16 +62,29 @@ def get_snippets():
     return get_current_registry()['pyramid.snippets']
 
 
-def render_snippet(context, request, name, arguments):
-    snippet_request = Request.blank(
-        request.path + name,
-        base_url=request.application_url,
-        POST=urllib.urlencode(arguments))
-    snippet_request.registry = request.registry
+def render_snippet(context, request, name, params):
     snippet = get_snippets().get(name)
     if not snippet:
         return None
-    return render_view(context, snippet_request, snippet['view'])
+
+    view_name = snippet['view']
+    view_request = Request.blank(
+        "{0}/{1}".format(request.path, view_name),
+        base_url=request.application_url,
+        POST=params and urllib.urlencode(params) or u'',
+        )
+
+    view_request.registry = request.registry
+    try:
+        result = render_view(
+            context,
+            view_request,
+            view_name,
+            )
+    except PredicateMismatch:
+        return None
+    else:
+        return result.decode('utf-8')
 
 
 def render_snippets(context, request, body):
@@ -106,7 +120,7 @@ def render_snippets(context, request, body):
         if result is None:
             return '<div class="alert alert-error">{0}</div>'.format(
                 localizer.translate(
-                    _("No snippet with name '${name}' registered.",
+                    _("No snippet with name '${name}' matched.",
                       mapping=dict(name=infos['name']))))
         return result
 

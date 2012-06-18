@@ -8,23 +8,28 @@ class DummySnippet(object):
         self.request = request
 
     def __call__(self):
-        return Response('Foo')
+        return Response(u'Foo')
 
 
 def dummy_snippet(context, request):
-    return Response('Foo')
+    return Response(u'Foo')
 
 
 def test_non_existing(request):
     out = render_snippets(None, request, '[foo /]')
-    assert out == (u'<div class="alert alert-error">No snippet with'
-                   " name \'foo\' registered.</div>")
+    assert out == (u'<div class="alert alert-error">No snippet with name'
+                   " \'foo\' matched.</div>")
 
 
-def test_rendering(config, request):
-    def foo(context, request):
-        return Response(u"Foo")
+def test_render_predicate_mismatch(config, request):
+    config.add_view(dummy_snippet, name='foo-view', request_method='GET')
+    config.register_snippet(name='foo', title='Foo snippet', view='foo-view')
+    out = render_snippets(None, request, '[foo /]')
+    assert out == (u'<div class="alert alert-error">No snippet with name'
+                   " \'foo\' matched.</div>")
 
+
+def test_render(config, request):
     config.add_view(dummy_snippet, name='foo-view')
     config.register_snippet(name='foo', title='Foo snippet', view='foo-view')
     out = render_snippets(None, request, '[foo /]')
@@ -43,6 +48,20 @@ def test_arguments(config, request):
 
     out = render_snippets(None, request, '[foo ham=egg]Blubber[/foo]')
     assert out == u'Blubber - egg'
+
+
+def test_arguments_unicode(config, request):
+    def foo(context, request):
+        return Response("{0} - {1}".format(
+            request.POST.get('body').encode('utf-8'),
+            request.POST.get('schank').encode('utf-8')))
+
+    config.add_view(foo, name='foo-view')
+    config.register_snippet(name='foo', title="Buschenschank",
+                            view='foo-view')
+
+    out = render_snippets(None, request, '[foo schank=đuveć]Buschen[/foo]')
+    assert out == 'Buschen - đuveć'.decode('utf-8')
 
 
 def test_baseurl(config, request):
